@@ -1,0 +1,12 @@
+config FB_CBERRY
+	tristate "C-Berry LCD frame buffer support"
+	depends on FB
+	select FB_SYS_FILLRECT
+	select FB_SYS_COPYAREA
+	select FB_SYS_IMAGEBLIT
+	select FB_SYS_FOPS
+	select FB_DEFERRED_IO
+	select FB_BACKLIGHT
+	---help---
+	  This framebuffer driver supports the admatec C-Berry LCD module.
+
