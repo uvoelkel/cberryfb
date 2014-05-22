@@ -1,7 +1,7 @@
 cberryfb
 ========
 
-Linux frame buffer driver for the admatec C-Berry LCD module
+Linux framebuffer driver for the admatec C-Berry LCD module
 
 
 ## Installation

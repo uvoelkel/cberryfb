@@ -535,7 +535,7 @@ static void tft_init_board(struct fb_info *info)
     peri_write(paddr, 0);
 
     // clear TX and RX fifos
-    peri_write_nb( paddr, BCM2835_SPI0_CS_CLEAR );
+    peri_write_nb(paddr, BCM2835_SPI0_CS_CLEAR);
 
 
     // MSBFIRST is the only byteorder suported by SPI0
@@ -602,7 +602,7 @@ static void tft_data_write(struct cberryfb_par *par, u16 data)
 }
 
 // write 'count'-bytes to tft
-static void tft_data_multiwrite(struct cberryfb_par *par,  u16 *data, u32 count )
+static void tft_data_multiwrite(struct cberryfb_par *par,  u16 *data, u32 count)
 {
     volatile u32* paddr = par->spi0_base + BCM2835_SPI0_CS/4;
     volatile u32* fifo  = par->spi0_base + BCM2835_SPI0_FIFO/4;
@@ -616,10 +616,10 @@ static void tft_data_multiwrite(struct cberryfb_par *par,  u16 *data, u32 count 
     gpio_write(par, RAIO_CS, LOW);
     gpio_write(par, OE, LOW);
 
-    for( i=0; i<count; i++ )
-    {
+    for(i = 0; i < count; i++) {
+
         // WR = 0
-        *gpio_clear = ( 1 << RAIO_WR );
+        *gpio_clear = (1 << RAIO_WR);
 
         // activate SPI transfer
         *paddr |= BCM2835_SPI0_CS_TA;
@@ -638,7 +638,7 @@ static void tft_data_multiwrite(struct cberryfb_par *par,  u16 *data, u32 count 
         *paddr &= ~BCM2835_SPI0_CS_TA;
 
         // WR = 1
-        *gpio_set = ( 1 << RAIO_WR );
+        *gpio_set = (1 << RAIO_WR);
     }
 
     gpio_write(par, RAIO_CS, HIGH);
@@ -742,7 +742,7 @@ static void raio_init(struct fb_info *info)
     raio_set_register(par, PCLK, 0x00);
 
     // Backlight dimming
-    raio_set_backlight_pwm_value(par, 50);
+    raio_set_backlight_pwm_value(par, 255); // 50
 
     // memory clear with background color
     raio_set_register(par, TBCR, COLOR_BLACK);
@@ -754,7 +754,7 @@ static void raio_init(struct fb_info *info)
 }
 
 // write memory to TFT
-static void raio_write_vmem(struct fb_info *info)
+static void raio_update_display(struct fb_info *info)
 {
     struct cberryfb_par *par = info->par;
     tft_register_write(par, MRWC);
@@ -768,31 +768,31 @@ static void raio_write_vmem(struct fb_info *info)
 static void cberryfb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 {
     sys_fillrect(info, rect);
-    raio_write_vmem(info);
+    raio_update_display(info);
 }
 
 static void cberryfb_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 {
     sys_copyarea(info, area);
-    raio_write_vmem(info);
+    raio_update_display(info);
 }
 
 static void cberryfb_imageblit(struct fb_info *info, const struct fb_image *image)
 {
     sys_imageblit(info, image);
-    raio_write_vmem(info);
+    raio_update_display(info);
 }
 
 static ssize_t cberryfb_write(struct fb_info *info, const char __user *buf, size_t count, loff_t *ppos)
 {
     ssize_t ret = fb_sys_write(info, buf, count, ppos);
-    raio_write_vmem(info);
+    raio_update_display(info);
     return ret;
 }
 
 static void cberryfb_deferred_io(struct fb_info *info, struct list_head *pagelist)
 {
-    raio_write_vmem(info);
+    raio_update_display(info);
 }
 
 
@@ -816,9 +816,18 @@ static struct fb_var_screeninfo cberryfb_var = {
     .yres           = DISPLAY_HEIGHT,
     .xres_virtual   = DISPLAY_WIDTH,
     .yres_virtual   = DISPLAY_HEIGHT,
-    .nonstd         = 1,
     .activate       = FB_ACTIVATE_NOW,
     .vmode          = FB_VMODE_NONINTERLACED,
+
+    .nonstd         = 1,
+    .red.offset     = 11,
+    .red.length     = 5,
+    .green.offset   = 5,
+    .green.length   = 6,
+    .blue.offset    = 0,
+    .blue.length    = 5,
+    .transp.offset  = 0,
+    .transp.length  = 0,
 };
 
 static struct fb_ops cberryfb_ops = {
@@ -831,7 +840,7 @@ static struct fb_ops cberryfb_ops = {
 };
 
 static struct fb_deferred_io cberryfb_defio = {
-    .delay          = HZ/20,
+    .delay          = HZ/30,
     .deferred_io    = cberryfb_deferred_io,
 };
 
@@ -862,9 +871,9 @@ static int cberryfb_probe(struct platform_device *dev)
     info->screen_base = (char __force __iomem*)vmem;
     info->fbops = &cberryfb_ops;
     info->fix = cberryfb_fix;
+    info->fix.smem_start = (unsigned long)vmem;
     info->fix.smem_len = vmem_size;
     info->var = cberryfb_var;
-    info->pseudo_palette = (void *)(info + 1);
     info->flags = FBINFO_DEFAULT | FBINFO_VIRTFB;
 
     info->fbdefio = &cberryfb_defio;
@@ -900,8 +909,8 @@ static int cberryfb_remove(struct platform_device *dev)
     struct cberryfb_par* par;
 
     if (info) {
-        fb_deferred_io_cleanup(info);
         unregister_framebuffer(info);
+        fb_deferred_io_cleanup(info);
         vfree((void __force *)info->screen_base);
 
         par = info->par;
