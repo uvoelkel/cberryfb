@@ -317,6 +317,7 @@
 struct cberryfb_par {
     u32 *gpio_base;
     u32 *spi0_base;
+    int current_brightness;
 };
 
 
@@ -742,7 +743,7 @@ static void raio_init(struct fb_info *info)
     raio_set_register(par, PCLK, 0x00);
 
     // Backlight dimming
-    raio_set_backlight_pwm_value(par, 255); // 50
+    raio_set_backlight_pwm_value(par, 255);
 
     // memory clear with background color
     raio_set_register(par, TBCR, COLOR_BLACK);
@@ -819,7 +820,7 @@ static struct fb_var_screeninfo cberryfb_var = {
     .activate       = FB_ACTIVATE_NOW,
     .vmode          = FB_VMODE_NONINTERLACED,
 
-    .nonstd         = 1,
+    .nonstd         = 0,
     .red.offset     = 11,
     .red.length     = 5,
     .green.offset   = 5,
@@ -840,14 +841,38 @@ static struct fb_ops cberryfb_ops = {
 };
 
 static struct fb_deferred_io cberryfb_defio = {
-    .delay          = HZ/30,
+    .delay          = HZ/25,
     .deferred_io    = cberryfb_deferred_io,
 };
 
-static int cberryfb_probe(struct platform_device *dev)
+static unsigned int fps;
+
+static int cberryfb_bl_update_status(struct backlight_device *bdev)
+{
+    struct cberryfb_par *par = bl_get_data(bdev);
+    if (par->current_brightness != bdev->props.brightness) {
+        par->current_brightness = bdev->props.brightness;
+        raio_set_backlight_pwm_value(par, par->current_brightness);
+    }
+    return 0;
+}
+
+static int cberryfb_bl_get_brightness(struct backlight_device *bdev)
+{
+    struct cberryfb_par *par = bl_get_data(bdev);
+    return par->current_brightness;
+}
+
+static const struct backlight_ops cberryfb_bl_ops = {
+	.update_status = cberryfb_bl_update_status,
+	.get_brightness = cberryfb_bl_get_brightness,
+};
+
+static int cberryfb_probe(struct platform_device *pdev)
 {
     struct fb_info *info;
     struct cberryfb_par *par;
+    struct backlight_properties bl_props;
     int retval = -ENOMEM;
     int vmem_size;
     unsigned char *vmem;
@@ -861,7 +886,7 @@ static int cberryfb_probe(struct platform_device *dev)
     memset(vmem, 0, vmem_size);
 
 
-    info = framebuffer_alloc(sizeof(struct cberryfb_par), &dev->dev);
+    info = framebuffer_alloc(sizeof(struct cberryfb_par), &pdev->dev);
     if (!info) {
         vfree(vmem);
         return -ENOMEM;
@@ -877,27 +902,39 @@ static int cberryfb_probe(struct platform_device *dev)
     info->flags = FBINFO_DEFAULT | FBINFO_VIRTFB;
 
     info->fbdefio = &cberryfb_defio;
+    if (0 < fps) {
+        info->fbdefio->delay = HZ/fps;
+    }
     fb_deferred_io_init(info);
+
+
+    memset(&bl_props, 0, sizeof(struct backlight_properties));
+    bl_props.type = BACKLIGHT_RAW;
+    bl_props.max_brightness = 255;
+    bl_props.brightness = 255;
+    info->bl_dev = backlight_device_register("cberryfb", &pdev->dev, info->par, &cberryfb_bl_ops, &bl_props);
 
 
     retval = register_framebuffer(info);
     if (retval < 0) {
+        backlight_device_unregister(info->bl_dev);
         framebuffer_release(info);
         vfree(vmem);
         return retval;
     }
 
-    platform_set_drvdata(dev, info);
+    platform_set_drvdata(pdev, info);
 
     par = info->par;
     par->gpio_base = ioremap(GPIO_BASE, SZ_16K);
     par->spi0_base = ioremap(SPI0_BASE, SZ_16K);
+    par->current_brightness = 255;
 
     tft_init_board(info);
     tft_hard_reset(info);
     raio_init(info);
 
-    printk(KERN_INFO "fb%d: admatec C-Berry LCD frame buffer device\n", info->node);
+    printk(KERN_INFO "fb%d: admatec C-Berry LCD framebuffer device\n", info->node);
     return 0;
 }
 
@@ -910,6 +947,7 @@ static int cberryfb_remove(struct platform_device *dev)
 
     if (info) {
         unregister_framebuffer(info);
+        backlight_device_unregister(info->bl_dev);
         fb_deferred_io_cleanup(info);
         vfree((void __force *)info->screen_base);
 
@@ -959,9 +997,12 @@ static void __exit cberryfb_exit(void)
     platform_driver_unregister(&cberryfb_driver);
 }
 
+module_param(fps, uint, 0);
+MODULE_PARM_DESC(fps, "Frames per second (default 25)");
+
 module_init(cberryfb_init);
 module_exit(cberryfb_exit);
 
-MODULE_DESCRIPTION("admatec C-Berry LCD frame buffer driver");
+MODULE_DESCRIPTION("admatec C-Berry LCD framebuffer driver");
 MODULE_AUTHOR("Ulrich Völkel");
 MODULE_LICENSE("GPL");
