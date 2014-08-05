@@ -6,7 +6,22 @@
  * based on:
  *    bcm2835 library           Copyright (C) 2011-2013 Mike McCauley   GPLv2
  *    C-Berry example code      Copyright (C) 2013 admatec GmbH         GPLv3
+ *    skeletonfb                Copyright (C) James Simmons and Geert Uytterhoeven
  *
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
 #include <linux/module.h>
@@ -317,6 +332,7 @@
 struct cberryfb_par {
     u32 *gpio_base;
     u32 *spi0_base;
+    u32 palette[16];
     int current_brightness;
 };
 
@@ -764,8 +780,6 @@ static void raio_update_display(struct fb_info *info)
 
 
 
-
-
 static void cberryfb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 {
     sys_fillrect(info, rect);
@@ -788,6 +802,58 @@ static ssize_t cberryfb_write(struct fb_info *info, const char __user *buf, size
 {
     ssize_t ret = fb_sys_write(info, buf, count, ppos);
     raio_update_display(info);
+    return ret;
+}
+
+static int cberryfb_setcolreg(unsigned regno, unsigned red, unsigned green,
+			   unsigned blue, unsigned transp,
+			   struct fb_info *info)
+{
+    if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
+	    u32 v;
+
+	    if (16 <= regno) {
+		    return -EINVAL;
+        }
+
+	    v = (red << info->var.red.offset) |
+		    (green << info->var.green.offset) |
+		    (blue << info->var.blue.offset)/* |
+		    (transp << info->var.transp.offset)*/;
+
+	    ((u32*)(info->pseudo_palette))[regno] = v;
+    }
+
+    return 0;
+}
+
+static int cberryfb_blank(int blank_mode, struct fb_info *info)
+{
+    int ret = -EINVAL;
+
+    switch (blank_mode) {
+
+        case FB_BLANK_NORMAL:
+            printk(KERN_INFO "cberryfb_blank: NORMAL\n");
+            memset(info->screen_base, 0, info->fix.smem_len);
+            ret = 0;
+            break;
+        case FB_BLANK_POWERDOWN:
+            printk(KERN_INFO "cberryfb_blank: POWERDOWN\n");
+            break;
+        case FB_BLANK_HSYNC_SUSPEND:
+            printk(KERN_INFO "cberryfb_blank: HSYNC_SUSPEND\n");
+            break;
+        case FB_BLANK_VSYNC_SUSPEND:
+            printk(KERN_INFO "cberryfb_blank: VSYNC_SUSPEND\n");
+            break;
+        case FB_BLANK_UNBLANK:
+            printk(KERN_INFO "cberryfb_blank: UNBLANK\n");
+            memset(info->screen_base, 0, info->fix.smem_len);
+            ret = 0;
+            break;
+    }
+
     return ret;
 }
 
@@ -838,6 +904,8 @@ static struct fb_ops cberryfb_ops = {
     .fb_fillrect    = cberryfb_fillrect,
     .fb_copyarea    = cberryfb_copyarea,
     .fb_imageblit   = cberryfb_imageblit,
+    .fb_blank       = cberryfb_blank,
+    .fb_setcolreg   = cberryfb_setcolreg,
 };
 
 static struct fb_deferred_io cberryfb_defio = {
@@ -892,6 +960,7 @@ static int cberryfb_probe(struct platform_device *pdev)
         return -ENOMEM;
     }
 
+    par = info->par;
 
     info->screen_base = (char __force __iomem*)vmem;
     info->fbops = &cberryfb_ops;
@@ -899,7 +968,8 @@ static int cberryfb_probe(struct platform_device *pdev)
     info->fix.smem_start = (unsigned long)vmem;
     info->fix.smem_len = vmem_size;
     info->var = cberryfb_var;
-    info->flags = FBINFO_DEFAULT | FBINFO_VIRTFB;
+    info->flags = FBINFO_DEFAULT | FBINFO_VIRTFB;    
+    info->pseudo_palette = par->palette;
 
     info->fbdefio = &cberryfb_defio;
     if (0 < fps) {
@@ -925,7 +995,6 @@ static int cberryfb_probe(struct platform_device *pdev)
 
     platform_set_drvdata(pdev, info);
 
-    par = info->par;
     par->gpio_base = ioremap(GPIO_BASE, SZ_16K);
     par->spi0_base = ioremap(SPI0_BASE, SZ_16K);
     par->current_brightness = 255;
@@ -968,6 +1037,7 @@ static struct platform_driver cberryfb_driver = {
     .remove = cberryfb_remove,
     .driver = {
         .name   = "cberryfb",
+        .owner	= THIS_MODULE,
     },
 };
 
