@@ -86,7 +86,7 @@ select the driver
     Exit and save
 
 
-Note: you could also add the cberry sources before make oldconfig and then select it when running it.
+note: you could also add the cberry sources before the `make oldconfig` step and then select the module when running it.
 
 
 
@@ -149,20 +149,33 @@ the module is called "cberryfb"
 the last line should look like this: `fb1: admatec C-Berry LCD framebuffer device`
 
 
-run the X-server
+### run the X-server
 
     FRAMEBUFFER=/dev/fb1 startx
 
-mplayer
+note: you might need to remove the fbturbo driver first
+
+    apt-get remove xserver-xorg-video-fbturbo
+
+
+### mplayer
 
     mplayer -nolirc -vo fbdev2:/dev/fb1 -vf scale=320:-3 video.mpg
 
-display an image using fbi
+### display an image using fbi
 
     fbi -d /dev/fb1 -T 1 -noverbose -a image.bmp
 
+### console
 
-console usage is not yet supported
+to map console 1 to fb1 execute 
+   
+    con2fbmap 1 1
+
+to map console 1 back to fb0 execute
+
+    con2fbmap 1 0
+
 
 
 
@@ -172,8 +185,8 @@ You can control the backlight using the files under `/sys/class/backlight/cberry
     cat /sys/class/backlight/cberryfb/actual_brightness
     cat /sys/class/backlight/cberryfb/max_brightness
 
-    echo "100" > /sys/class/backlight/cberryfb/brightness
-    echo "0" > /sys/class/backlight/cberryfb/brightness
-    echo "255" > /sys/class/backlight/cberryfb/brightness
+    echo 100 > /sys/class/backlight/cberryfb/brightness
+    echo 0 > /sys/class/backlight/cberryfb/brightness
+    echo 255 > /sys/class/backlight/cberryfb/brightness
 
 
